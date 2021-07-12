@@ -64,17 +64,18 @@ func NewManager(address string, count prometheus.Gauge, cache *redis.Client, con
 
 // StockRequest represents the json coming in from the request
 type StockRequest struct {
-	Ticker    string `json:"ticker"`
-	Token     string `json:"discord_bot_token"`
-	Name      string `json:"name"`
-	Nickname  bool   `json:"set_nickname"`
-	Crypto    bool   `json:"crypto"`
-	Color     bool   `json:"set_color"`
-	Decorator string `json:"decorator" default:"-"`
-	Frequency int    `json:"frequency" default:"60"`
-	Currency  string `json:"currency" default:"usd"`
-	Bitcoin   bool   `json:"bitcoin"`
-	Activity  string `json:"activity"`
+	Ticker         string `json:"ticker"`
+	Token          string `json:"discord_bot_token"`
+	Name           string `json:"name"`
+	Nickname       bool   `json:"set_nickname"`
+	Crypto         bool   `json:"crypto"`
+	Color          bool   `json:"set_color"`
+	Decorator      string `json:"decorator" default:"-"`
+	Frequency      int    `json:"frequency" default:"60"`
+	Currency       string `json:"currency" default:"usd"`
+	Bitcoin        bool   `json:"bitcoin"`
+	Activity       string `json:"activity"`
+	ExtendActivity bool   `json:"extend_activity"`
 }
 
 // AddStock adds a new stock or crypto to the list of what to watch
@@ -162,7 +163,7 @@ func (m *Manager) AddStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stock := NewStock(stockReq.Ticker, stockReq.Token, stockReq.Name, stockReq.Nickname, stockReq.Color, stockReq.Decorator, stockReq.Frequency, stockReq.Currency, stockReq.Activity)
+	stock := NewStock(stockReq.Ticker, stockReq.Token, stockReq.Name, stockReq.Nickname, stockReq.Color, stockReq.Decorator, stockReq.Frequency, stockReq.Currency, stockReq.Activity, stockReq.ExtendActivity)
 	m.addStock(stockReq.Ticker, stock)
 	tickerCount.Inc()
 

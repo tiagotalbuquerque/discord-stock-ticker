@@ -15,34 +15,36 @@ import (
 )
 
 type Stock struct {
-	Ticker    string          `json:"ticker"`   // stock symbol
-	Name      string          `json:"name"`     // override for symbol as shown on the bot
-	Nickname  bool            `json:"nickname"` // flag for changing nickname
-	Color     bool            `json:"color"`
-	Decorator string          `json:"decorator"`
-	Frequency time.Duration   `json:"frequency"` // how often to update in seconds
-	Currency  string          `json:"currency"`
-	Bitcoin   bool            `json:"bitcoin"`
-	Activity  string          `json:"activity"`
-	Cache     *redis.Client   `json:"-"`
-	Context   context.Context `json:"-"`
-	token     string          `json:"-"` // discord token
-	close     chan int        `json:"-"`
+	Ticker         string          `json:"ticker"`   // stock symbol
+	Name           string          `json:"name"`     // override for symbol as shown on the bot
+	Nickname       bool            `json:"nickname"` // flag for changing nickname
+	Color          bool            `json:"color"`
+	Decorator      string          `json:"decorator"`
+	Frequency      time.Duration   `json:"frequency"` // how often to update in seconds
+	Currency       string          `json:"currency"`
+	Bitcoin        bool            `json:"bitcoin"`
+	Activity       string          `json:"activity"`
+	ExtendActivity bool            `json:"activity"`
+	Cache          *redis.Client   `json:"-"`
+	Context        context.Context `json:"-"`
+	token          string          `json:"-"` // discord token
+	close          chan int        `json:"-"`
 }
 
 // NewStock saves information about the stock and starts up a watcher on it
-func NewStock(ticker string, token string, name string, nickname bool, color bool, decorator string, frequency int, currency string, activity string) *Stock {
+func NewStock(ticker string, token string, name string, nickname bool, color bool, decorator string, frequency int, currency string, activity string, extendActivity bool) *Stock {
 	s := &Stock{
-		Ticker:    ticker,
-		Name:      name,
-		Nickname:  nickname,
-		Color:     color,
-		Decorator: decorator,
-		Activity:  activity,
-		Frequency: time.Duration(frequency) * time.Second,
-		Currency:  strings.ToUpper(currency),
-		token:     token,
-		close:     make(chan int, 1),
+		Ticker:         ticker,
+		Name:           name,
+		Nickname:       nickname,
+		Color:          color,
+		Decorator:      decorator,
+		Activity:       activity,
+		ExtendActivity: extendActivity,
+		Frequency:      time.Duration(frequency) * time.Second,
+		Currency:       strings.ToUpper(currency),
+		token:          token,
+		close:          make(chan int, 1),
 	}
 
 	// spin off go routine to watch the price
@@ -125,12 +127,24 @@ func (s *Stock) watchStockPrice() {
 		arrows = true
 	}
 
-	// Grab custom activity messages
-	var custom_activity []string
+	// Create list of activity sections
+	var activity_messages []string
+	activity_messages = append(activity_messages, "<price-diff>", "<price-diff>")
+
+	// Check for extra information wanted
+	if s.ExtendActivity {
+		activity_messages = append(activity_messages, "<market-cap>", "<market-cap>")
+		activity_messages = append(activity_messages, "<circulating-supply>", "<circulating-supply>")
+		activity_messages = append(activity_messages, "<volume>", "<volume>")
+		activity_messages = append(activity_messages, "<open>", "<open>")
+	}
+
+	// Check for custom activity messages
 	itr := 0
-	itrSeed := 0.0
 	if s.Activity != "" {
-		custom_activity = strings.Split(s.Activity, ";")
+		for _, message := range strings.Split(s.Activity, ";") {
+			activity_messages = append(activity_messages, message, message)
+		}
 	}
 
 	logger.Infof("Watching stock price for %s", s.Name)
@@ -200,11 +214,29 @@ func (s *Stock) watchStockPrice() {
 			if s.Nickname {
 				// update nickname instead of activity
 				var nickname string
-				var activity string
 
 				// format nickname & activity
 				nickname = fmt.Sprintf("%s %s $%s", strings.ToUpper(s.Name), s.Decorator, fmtPrice)
-				activity = fmt.Sprintf("$%s (%s)", fmtDiffChange, fmtDiffPercent)
+				activity_messages[0] = fmt.Sprintf("$%s (%s)", fmtDiffChange, fmtDiffPercent)
+				activity_messages[1] = activity_messages[0]
+
+				if s.ExtendActivity {
+					// Market cap
+					activity_messages[2] = fmt.Sprintf("Market Cap: %s", priceData.QuoteSummary.Results[0].Price.MarketCap.Fmt)
+					activity_messages[3] = activity_messages[0]
+
+					// Circulating supply
+					activity_messages[4] = fmt.Sprintf("Circulating: %s", priceData.QuoteSummary.Results[0].Price.CirculatingSupply.Fmt)
+					activity_messages[5] = activity_messages[4]
+
+					// Volume
+					activity_messages[6] = fmt.Sprintf("Volume: %s", priceData.QuoteSummary.Results[0].Price.Volume24Hr.Fmt)
+					activity_messages[7] = activity_messages[6]
+
+					// Open
+					activity_messages[8] = fmt.Sprintf("Open: %s", priceData.QuoteSummary.Results[0].Price.RegularMarketOpen.Fmt)
+					activity_messages[9] = activity_messages[8]
+				}
 
 				// Update nickname in guilds
 				for _, g := range guilds {
@@ -263,28 +295,16 @@ func (s *Stock) watchStockPrice() {
 					}
 				}
 
-				// Custom activity messages
-				if len(custom_activity) > 0 {
-
-					// Display the real activity once per cycle
-					if itr == len(custom_activity) {
-						itr = 0
-						itrSeed = 0.0
-					} else if math.Mod(itrSeed, 2.0) == 1.0 {
-						activity = custom_activity[itr]
-						itr++
-						itrSeed++
-					} else {
-						activity = custom_activity[itr]
-						itrSeed++
-					}
-				}
-
-				err = dg.UpdateGameStatus(0, activity)
+				err = dg.UpdateGameStatus(0, activity_messages[itr])
 				if err != nil {
 					logger.Errorf("Unable to set activity: %s", err)
 				} else {
-					logger.Debugf("Set activity: %s", activity)
+					logger.Debugf("Set activity: %s", activity_messages[itr])
+				}
+
+				itr++
+				if itr == len(activity_messages) {
+					itr = 0
 				}
 
 			} else {
