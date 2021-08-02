@@ -1,6 +1,8 @@
 # discord-stock-ticker
 Live stock and crypto tickers for your discord server.
 
+[<img  data-src="https://deploy.stdlib.com/static/images/deploy.svg" width="192">](https://deploy.stdlib.com/)
+
 Now with five different types of tickers!
 
 🍾 300+ public tickers with over 7k installs across 1k discord servers!
