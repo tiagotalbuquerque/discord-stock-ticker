@@ -12,46 +12,48 @@ import (
 	"github.com/rssnyder/discord-stock-ticker/utils"
 )
 
-type Matic struct {
+type Token struct {
+	Network   string        `json:"network"`
 	Contract  string        `json:"contract"`
 	Name      string        `json:"name"`
 	Nickname  bool          `json:"nickname"`
 	Frequency time.Duration `json:"frequency"`
 	Color     bool          `json:"color"`
 	Decorator string        `json:"decorator"`
-	Currency  string        `json:"currency"`
 	Decimals  int           `json:"decimals"`
 	Activity  string        `json:"activity"`
+	Source    string        `json:"source"`
 	token     string        `json:"-"`
 	close     chan int      `json:"-"`
 }
 
-// NewMatic saves information about the stock and starts up a watcher on it
-func NewMatic(contract string, token string, name string, nickname bool, frequency int, currency string, decimals int, activity string, color bool, decorator string) *Matic {
-	m := &Matic{
+// NewToken saves information about the stock and starts up a watcher on it
+func NewToken(network string, contract string, token string, name string, nickname bool, frequency int, decimals int, activity string, color bool, decorator string, source string) *Token {
+	m := &Token{
+		Network:   network,
 		Contract:  contract,
 		Name:      name,
 		Nickname:  nickname,
 		Frequency: time.Duration(frequency) * time.Second,
 		Color:     color,
 		Decorator: decorator,
-		Currency:  currency,
 		Activity:  activity,
+		Source:    source,
 		token:     token,
 		close:     make(chan int, 1),
 	}
 
 	// spin off go routine to watch the price
-	go m.watchMaticPrice()
+	go m.watchTokenPrice()
 	return m
 }
 
 // Shutdown sends a signal to shut off the goroutine
-func (m *Matic) Shutdown() {
+func (m *Token) Shutdown() {
 	m.close <- 1
 }
 
-func (m *Matic) watchMaticPrice() {
+func (m *Token) watchTokenPrice() {
 
 	// create a new discord session using the provided bot token.
 	dg, err := discordgo.New("Bot " + m.token)
@@ -107,20 +109,43 @@ func (m *Matic) watchMaticPrice() {
 			return
 		case <-ticker.C:
 			logger.Infof("Fetching stock price for %s", m.Name)
-
-			// save the price struct & do something with it
-			priceData, err := utils.GetMaticPrice(m.Contract, m.Currency)
-			if err != nil {
-				logger.Errorf("Unable to fetch stock price for %s", m.Name)
-			}
-
+			var priceData string
 			var fmtPriceRaw float64
+			var fmtPrice float64
 
-			if fmtPriceRaw, err = strconv.ParseFloat(priceData.Totokenamount, 64); err != nil {
-				logger.Errorf("Error with price format for %s", m.Name)
+			switch m.Source {
+			case "pancakeswap":
+				logger.Infof("Using %s to get price: %s", m.Source, m.Name)
+
+				// Get price from Ps in BNB
+				priceData, err = utils.GetPancakeTokenPrice(m.Contract)
+				if err != nil {
+					logger.Errorf("Unable to fetch token price from %s: %s", m.Source, m.Name)
+					continue
+				}
+
+				bnbRate, err := utils.GetCryptoPrice("binancecoin")
+				if err != nil {
+					logger.Errorf("Unable to fetch bnb price for %s", m.Name)
+					continue
+				}
+
+				if fmtPriceRaw, err = strconv.ParseFloat(priceData, 64); err != nil {
+					logger.Errorf("Error with price format for %s", m.Name)
+				}
+				fmtPrice = bnbRate.MarketData.CurrentPrice.USD * fmtPriceRaw
+
+			default:
+				priceData, err = utils.Get1inchTokenPrice(m.Network, m.Contract)
+				if err != nil {
+					logger.Errorf("Unable to fetch token price for %s", m.Name)
+				}
+
+				if fmtPriceRaw, err = strconv.ParseFloat(priceData, 64); err != nil {
+					logger.Errorf("Error with price format for %s", m.Name)
+				}
+				fmtPrice = fmtPriceRaw / 10000000
 			}
-
-			fmtPrice := fmtPriceRaw / 10000000
 
 			// calculate if price has moved up or down
 			var increase bool
